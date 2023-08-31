@@ -16,9 +16,10 @@ NOW = datetime.datetime.now()
 START_TIME = str(NOW)
 START_TIME_NAME = NOW.strftime("%Y%m%d-%H%M%S")
 
-TIMEOPTION = 10
+TIMEOPTION = int(config.get('MAIN', 'TIMEOPTION'))
 PARALLEL = 1
 BIDIRFLAG = 0
+SERVERFLAG = 0
 
 MAXPLOTVIEW = int(config.get('GRAPH', 'MAXPLOTVIEW'))
 CMD = config.get('MAIN', 'CMD')
@@ -68,6 +69,8 @@ def run_iperf(iperf_cmd):
 
     global MAXPLOTVIEW
     global BIDIRFLAG
+    global SERVERFLAG
+
     global x_vals
     global y_vals
 
@@ -90,7 +93,7 @@ def run_iperf(iperf_cmd):
     fig.show()
     while True:
         if rep_counter <= REPEAT or REPEAT == -1:
-            signal.signal(signal.SIGINT, signal_handler)
+            # signal.signal(signal.SIGINT, signal_handler)
             with subprocess.Popen(iperf_cmd, stdout=subprocess.PIPE, universal_newlines=True) as proc:
                 match_counter = 1
                 at_rep.set_text("Repetition: " + str(rep_counter))
@@ -98,25 +101,35 @@ def run_iperf(iperf_cmd):
                     print(line, end='')
                     output_iperf_console_log(line, 0)
                     if PARALLEL > 1:
-                        match = re.search(r'\[SUM\].*? (\d+(\.\d+)?) Mbits/sec', line)
+                        match = re.search(r'^\[SUM\]', line)
                         if BIDIRFLAG:
-                            match = re.search(r'^\[SUM\]\[RX-C\].*? (\d+(\.\d+)?) Mbits/sec', line)
+                            match = re.search(r'^\[SUM\]\[RX-C\]', line)
                     else:
-                        match = re.search(r'\[  5\].*? (\d+(\.\d+)?) Mbits/sec', line)
+                        match = re.search(r'^\[\s*\d+\]', line)
                         if BIDIRFLAG:
-                            match = re.search(r'^\[  7\]\[RX-C\].*? (\d+(\.\d+)?) Mbits/sec', line)
+                            match = re.search(r'^\[SUM\]\[RX-C\]', line)
+                        elif SERVERFLAG:
+                            match = re.search(r'^\[SUM\]\[RX-S\]', line)
+                        
                     if match:
-                        if match_counter <= TIMEOPTION:
-                            mbits_per_sec = float(match.group(1))
-                            current_tpt.set_text("Current: " + str(mbits_per_sec) + " Mbps")
-                            # print('-->',mbits_per_sec)
+                        # print('-->',line)
+                        if 'connected' in line:
+                            print('Just a connect notification!')
+                            continue
+                        mbits_per_sec = float(re.search(r'(\d+(\.\d+)?) Mbits/sec', line).group(1))
+                        sec_gap = re.search(r'(\d+\.\d+-\d+\.\d+)', line).group(1).split('-')
+                        current_tpt.set_text("Current: " + str(mbits_per_sec) + " Mbps")
+                        sec_gap_check = float(sec_gap[1]) - float(sec_gap[0])
+                        # print('-->', sec_gap_check)
+                        if sec_gap_check < 3:
+                            print('-->',mbits_per_sec)
                             x_vals.append(len(x_vals)+1)
                             y_vals.append(mbits_per_sec)
                             line = plt.plot(x_vals[-MAXPLOTVIEW:], y_vals[-MAXPLOTVIEW:], color=COLOR, linestyle=LINESTYLE, marker=MARKER, markerfacecolor=MARKERCOLOR, markersize=MARKERSIZE)
                             # print(y_vals[-MAXPLOTVIEW:])
                             plt.xlim(max(x_vals)-(MAXPLOTVIEW-1), max(x_vals))
-                            plt.ylim(0, 450)
-                            # plt.ylim((0, max(y_vals)+50))
+                            # plt.ylim(0, 450)
+                            plt.ylim((0, max(y_vals)*0.2+max(y_vals)))
 
                             fig.canvas.draw()
                             fig.canvas.flush_events()
@@ -125,9 +138,6 @@ def run_iperf(iperf_cmd):
                             l.remove()
 
                             output_log()
-                            match_counter = match_counter + 1
-                        else:
-                            break
             rep_counter = rep_counter + 1
         else:
             break
@@ -137,6 +147,7 @@ def cmd_compose(iperf_cmd):
     global TIMEOPTION
     global PARALLEL
     global BIDIRFLAG
+    global SERVERFLAG
 
     for idx, arg in enumerate(iperf_cmd):
         # Handle cases like '-t 3'
@@ -156,6 +167,9 @@ def cmd_compose(iperf_cmd):
         # Handle cases like '--bidir'
         if re.match(r'^--bidir$', arg):
             BIDIRFLAG = 1    
+        # Handle cases like '-s'
+        if re.match(r'^-s$', arg):
+            SERVERFLAG = 1   
 
     print("Time option value:", TIMEOPTION)
     print("Parallel option value:", PARALLEL)
@@ -179,6 +193,6 @@ if __name__ == '__main__':
     print("Press Ctrl + C to end the program.")
     while True:
         try:
-            time.sleep(1)  # Keep the program running
+            time.sleep(5)  # Keep the program running
         except KeyboardInterrupt:
             pass  # Ignore Ctrl + C so the program keeps running
