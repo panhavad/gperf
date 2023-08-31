@@ -1,16 +1,25 @@
 import subprocess
 import re
+from turtle import color
 import matplotlib.pyplot as plt
-import matplotlib.animation as animation
 import datetime
 import time
 import signal
 import configparser
+import os
+
 
 config = configparser.ConfigParser()
 config.read_file(open(r'config.txt'))
 
+NOW = datetime.datetime.now()
+START_TIME = str(NOW)
+START_TIME_NAME = NOW.strftime("%Y%m%d-%H%M%S")
+
 TIMEOPTION = 10
+PARALLEL = 1
+BIDIRFLAG = 0
+
 MAXPLOTVIEW = int(config.get('GRAPH', 'MAXPLOTVIEW'))
 CMD = config.get('MAIN', 'CMD')
 COLOR = config.get('GRAPH', 'COLOR')
@@ -31,7 +40,9 @@ def signal_handler(signal, frame):
     exit(0)
 
 def output_log():
-    graph_history_file = "graph_history.log"
+    if not os.path.exists('logs/' + START_TIME_NAME):
+        os.makedirs('logs/' + START_TIME_NAME)
+    graph_history_file = "logs/" + START_TIME_NAME + "/graph-history-" + START_TIME_NAME + ".log"
 
     with open(graph_history_file, "w") as file:
         file.write("X values:\n")
@@ -41,7 +52,9 @@ def output_log():
         file.write(str(y_vals))
 
 def output_iperf_console_log(console_log_line, fresh_start):
-    iperf_console_file = "iperf_console.log"
+    if not os.path.exists('logs/' + START_TIME_NAME):
+        os.makedirs('logs/' + START_TIME_NAME)
+    iperf_console_file = "logs/" + START_TIME_NAME + "/iperf-console-" + START_TIME_NAME + ".log"
 
     if fresh_start:
         with open(iperf_console_file, "w") as file:
@@ -51,14 +64,15 @@ def output_iperf_console_log(console_log_line, fresh_start):
             file.write(console_log_line)
 
 def run_iperf(iperf_cmd):
-    start_time = str(datetime.datetime.now())
-    output_iperf_console_log(start_time+'\n', 0)
+    output_iperf_console_log(START_TIME+'\n', 0)
 
     global MAXPLOTVIEW
+    global BIDIRFLAG
     global x_vals
     global y_vals
 
     rep_counter = 1
+    mbits_per_sec = 0
     plt.figure(figsize=(HPLOTSIZE,VPLOTSIZE))
 
     plt.xlabel('Time (intervals)')
@@ -66,34 +80,43 @@ def run_iperf(iperf_cmd):
     plt.title('iPerf Results')
     plt.grid(True)
 
-    plt.annotate('Start Datetime:', xy = (0, 1.03), xycoords='axes fraction', fontsize=7)
-    plt.annotate(start_time, xy = (0, 1), xycoords='axes fraction', fontsize=7)
-    at_rep = plt.annotate(rep_counter, xy = (0.9, 1.03), xycoords='axes fraction', fontsize=7)
+    plt.annotate('Start Datetime: '+START_TIME, xy = (0, 1.03), xycoords='axes fraction', fontsize=7)
+    at_rep = plt.annotate("Repetition: " + str(rep_counter), xy = (1, 1.03), xycoords='axes fraction', fontsize=7)
+    current_tpt = plt.annotate("Current: " + str(mbits_per_sec) + " Mbps", xy = (0.93, -0.13), xycoords='axes fraction', fontsize=10, color=COLOR)
+    # at_rep = plt.annotate("Repetition: " + str(rep_counter), xy = (1, 1.03), xycoords='axes fraction', fontsize=7)
+    plt.annotate("Command: " + ' '.join(iperf_cmd), xy = (0.0, -0.13), xycoords='axes fraction', fontsize=7)
 
     fig = plt.gcf()
     fig.show()
     while True:
-        # print(rep_counter)
-        if rep_counter <= REPEAT  or REPEAT == -1:
+        if rep_counter <= REPEAT or REPEAT == -1:
             signal.signal(signal.SIGINT, signal_handler)
             with subprocess.Popen(iperf_cmd, stdout=subprocess.PIPE, universal_newlines=True) as proc:
                 match_counter = 1
-                at_rep.set_text(rep_counter)
+                at_rep.set_text("Repetition: " + str(rep_counter))
                 for line in proc.stdout:
                     print(line, end='')
                     output_iperf_console_log(line, 0)
-                    match = re.search(r'\[SUM\].*? (\d+(\.\d+)?) Mbits/sec', line)
+                    if PARALLEL > 1:
+                        match = re.search(r'\[SUM\].*? (\d+(\.\d+)?) Mbits/sec', line)
+                        if BIDIRFLAG:
+                            match = re.search(r'^\[SUM\]\[RX-C\].*? (\d+(\.\d+)?) Mbits/sec', line)
+                    else:
+                        match = re.search(r'\[  5\].*? (\d+(\.\d+)?) Mbits/sec', line)
+                        if BIDIRFLAG:
+                            match = re.search(r'^\[  7\]\[RX-C\].*? (\d+(\.\d+)?) Mbits/sec', line)
                     if match:
                         if match_counter <= TIMEOPTION:
-                            # print(match_counter)
                             mbits_per_sec = float(match.group(1))
+                            current_tpt.set_text("Current: " + str(mbits_per_sec) + " Mbps")
+                            # print('-->',mbits_per_sec)
                             x_vals.append(len(x_vals)+1)
                             y_vals.append(mbits_per_sec)
                             line = plt.plot(x_vals[-MAXPLOTVIEW:], y_vals[-MAXPLOTVIEW:], color=COLOR, linestyle=LINESTYLE, marker=MARKER, markerfacecolor=MARKERCOLOR, markersize=MARKERSIZE)
-
                             # print(y_vals[-MAXPLOTVIEW:])
                             plt.xlim(max(x_vals)-(MAXPLOTVIEW-1), max(x_vals))
-                            plt.ylim((0, max(y_vals)+50))
+                            plt.ylim(0, 450)
+                            # plt.ylim((0, max(y_vals)+50))
 
                             fig.canvas.draw()
                             fig.canvas.flush_events()
@@ -112,19 +135,30 @@ def run_iperf(iperf_cmd):
 def cmd_compose(iperf_cmd):
     iperf_cmd = iperf_cmd.split()  # Split the input into a list of command and arguments
     global TIMEOPTION
+    global PARALLEL
+    global BIDIRFLAG
+
     for idx, arg in enumerate(iperf_cmd):
         # Handle cases like '-t 3'
         if re.match(r'^-t$', arg) or re.match(r'^--time$', arg):
             if idx + 1 < len(iperf_cmd):
                 TIMEOPTION = int(iperf_cmd[idx + 1])
-                # if re.match(r'^\d+$', TIMEOPTION):  # Check if the time option value is a digit
-                #     break
         # Handle cases like '-t3'
         if re.match(r'^-(t|--time)(\d+)$', arg):
             TIMEOPTION = int(arg[2:])
-            break
+        # Handle cases like '-P 3'
+        if re.match(r'^-P$', arg) or re.match(r'^--parallel$', arg):
+            if idx + 1 < len(iperf_cmd):
+                PARALLEL = int(iperf_cmd[idx + 1])
+        # Handle cases like '-P3'
+        if re.match(r'^-(P|--parallel)(\d+)$', arg):
+            PARALLEL = int(arg[2:])
+        # Handle cases like '--bidir'
+        if re.match(r'^--bidir$', arg):
+            BIDIRFLAG = 1    
 
     print("Time option value:", TIMEOPTION)
+    print("Parallel option value:", PARALLEL)
 
     iperf_cmd.append('--forceflush')  # Add the --forceflush flag
     iperf_cmd.append('-fm')  # Add the --forceflush flag
