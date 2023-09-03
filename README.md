@@ -21,6 +21,23 @@ Easy to read and understand, store the raw console log + graph type log as an ar
 
 ## How to use it?
 ### Developer execution
+Create virtual environment for execution
+```
+python -m venv venv
+```
+Activate environment
+for LINUX
+```
+source ./venv/bin/activate
+```
+ for WINDOWs
+```
+.\venv\Scripts\activate
+```
+To deactivate
+```
+decativate
+```
 Installation of dependencies
 ```
 pip install -r requirement.txt
@@ -32,6 +49,7 @@ By default below is the pre-configuration in file `config.txt`
 CMD=iperf3 -c 192.168.1.18 -B 192.168.15.10 -l1400 -t3600 -u -b100m -p2222 -P4 -R
 #N for number of time, -1 for INFINITY
 REPEAT=-1
+TIMEOPTION=10
 [GRAPH]
 MAXPLOTVIEW=100
 COLOR=red
@@ -56,7 +74,7 @@ python main.py
 ### Logging
 This program output 2 log file:
 
-1. Raw log of actual IPERF3 `iperf_console.log`
+1. Raw log of actual IPERF3 `./logs/iperf_console.log`
 Including the command begin use & the start datetime
 Sample:
 ```
@@ -77,7 +95,7 @@ Reverse mode, remote host 192.168.1.18 is sending
 [SUM]   0.00-1.00   sec  36.2 MBytes   303 Mbits/sec  0.205 ms  2609/29700 (8.8%)
 ```
 
-2. Graphing data log `graph_history.log`
+2. Graphing data log `./logs/graph_history.log`
 This is the X and Y data output from the graph, you can reuse the save data for plotting anywhere.
 ```
 root@DESKTOP:# cat graph_history.log
