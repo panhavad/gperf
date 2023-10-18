@@ -104,12 +104,12 @@ def run_iperf(iperf_cmd):
                         match = re.search(r'^\[SUM\]', line)
                         if BIDIRFLAG:
                             match = re.search(r'^\[SUM\]\[RX-C\]', line)
+                        elif SERVERFLAG:
+                            match = re.search(r'^\[SUM\]\[RX-S\]', line)
                     else:
                         match = re.search(r'^\[\s*\d+\]', line)
                         if BIDIRFLAG:
                             match = re.search(r'^\[SUM\]\[RX-C\]', line)
-                        elif SERVERFLAG:
-                            match = re.search(r'^\[SUM\]\[RX-S\]', line)
                         
                     if match:
                         # print('-->',line)
